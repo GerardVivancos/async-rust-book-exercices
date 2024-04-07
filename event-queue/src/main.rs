@@ -1,13 +1,52 @@
 use std::{io::{self, Read, Result, Write}, net::TcpStream};
 use poll::{Event, Poll};
+
 mod poll;
 
+#[derive(Debug)]
+struct Streams {
+    streams: Vec<TcpStream>,
+    handled_streams: Vec<bool>,
+}
+
+impl Streams {
+    fn new() -> Self {
+        Self {
+            streams: vec![],
+            handled_streams: vec![],
+        }
+    }
+
+    fn push(&mut self, stream: TcpStream) {
+        self.streams.push(stream);
+        self.handled_streams.push(false);
+    }
+
+    fn is_handled(&self, index: usize) -> bool {
+        if self.handled_streams.len() < index + 1 {
+            return false;
+        }
+        self.handled_streams[index]
+    }
+
+    fn all_handled(&self) -> bool {
+        self.handled_streams.iter().all(|&x| x)
+    }
+
+    fn stream(&mut self, index: usize) -> &mut TcpStream {
+        &mut self.streams[index]
+    }
+
+    fn complete(&mut self, index: usize) {
+        self.handled_streams[index] = true;
+    }
+}
 
 fn main() -> Result<()> {
     let mut poll = Poll::new()?;
     let num_events = 5;
 
-    let mut streams = vec![];
+    let mut streams = Streams::new();
     let addr = "localhost:8080";
 
     for i in 0..num_events {
@@ -24,8 +63,7 @@ fn main() -> Result<()> {
         streams.push(stream);
     }
 
-    let mut handled_events = 0;
-    while handled_events < num_events {
+    while !streams.all_handled() {
         let mut events = Vec::with_capacity(10);
         poll.poll(&mut events, None)?;
 
@@ -34,7 +72,7 @@ fn main() -> Result<()> {
             continue;
         }
 
-        handled_events += handle_events(&events, &mut streams)?;
+        handle_events(&events, &mut streams)?;
     }
 
     println!("FINISHED");
@@ -50,17 +88,20 @@ fn get_req(path: &str) -> String {
     )
 }
 
-fn handle_events(events: &[Event], streams: &mut[TcpStream]) -> Result<usize> {
-    let mut handled_events = 0;
+fn handle_events(events: &[Event], streams: &mut Streams) -> Result<()> {
     for event in events {
         let index = event.token();
         let mut data = vec![0u8; 4096];
 
         loop {
-            match streams[index].read(&mut data) {
+            if streams.is_handled(index) {
+                break;
+            };
+            match streams.stream(index).read(&mut data) {
                 Ok(n) if n == 0 => {
                     // we successfully read 0 bytes, hence we're done with the stream
-                    handled_events += 1;
+                    streams.complete(index);
+                    println!("read 0 for event {index}\n-----\n");
                     break;
                 }
                 Ok(n) => {
@@ -75,7 +116,5 @@ fn handle_events(events: &[Event], streams: &mut[TcpStream]) -> Result<usize> {
         }
 
     }
-
-    Ok(handled_events)
-
+    Ok(())
 }
