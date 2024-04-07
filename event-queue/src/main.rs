@@ -57,7 +57,6 @@ fn main() -> Result<()> {
         stream.set_nonblocking(true)?;
 
         stream.write_all(request.as_bytes())?;
-        //TODO: Remove dependency on epoll
         poll.registry().register(&stream, i, poll::Interest::READ)?;
 
         streams.push(stream);
