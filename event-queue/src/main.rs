@@ -1,8 +1,5 @@
 use std::{io::{self, Read, Result, Write}, net::TcpStream};
-use ffi::Event;
-use poll::Poll;
-
-mod ffi;
+use poll::{Event, Poll};
 mod poll;
 
 
@@ -21,7 +18,8 @@ fn main() -> Result<()> {
         stream.set_nonblocking(true)?;
 
         stream.write_all(request.as_bytes())?;
-        poll.registry().register(&stream, i, ffi::EPOLLIN | ffi::EPOLLET)?;
+        //TODO: Remove dependency on epoll
+        poll.registry().register(&stream, i, poll::Interest::READ)?;
 
         streams.push(stream);
     }

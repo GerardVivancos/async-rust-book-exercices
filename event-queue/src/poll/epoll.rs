@@ -1,10 +1,17 @@
 use std::{io::{self, Result}, net::TcpStream, os::fd::AsRawFd};
-use crate::ffi::{self, Event};
+use super::{Events, Interest, Poll, Registry};
 
-type Events = Vec<Event>;
+#[derive(Debug)]
+#[repr(C, packed)]
+pub struct Event {
+    pub(crate) events: u32,
+    pub(crate) epoll_data: usize, // token to identify event
+}
 
-pub struct Poll {
-    registry: Registry,
+impl Event {
+    pub fn token(&self) -> usize {
+        self.epoll_data
+    }
 }
 
 impl Poll {
@@ -50,14 +57,10 @@ impl Poll {
     }
 }
 
-pub struct Registry {
-    raw_fd: i32,
-}
-
 impl Registry {
-    pub fn register(&self, source: &TcpStream, token: usize, interests: i32) -> Result<()> {
-        let mut event = ffi::Event {
-            events: interests as u32,
+    pub fn register(&self, source: &TcpStream, token: usize, interest: Interest) -> Result<()> {
+        let mut event = Event {
+            events: to_epoll_interests(interest),
             epoll_data: token,
         };
 
@@ -70,7 +73,13 @@ impl Registry {
             return Err(io::Error::last_os_error());
         }
         Ok(())
+    }
+    
+}
 
+fn to_epoll_interests(interest: Interest) -> u32 {
+    match interest {
+        Interest::READ => (ffi::EPOLLIN | ffi::EPOLLET) as u32
     }
 }
 
@@ -84,5 +93,22 @@ impl Drop for Registry {
             let err = io::Error::last_os_error();
             eprintln!("ERROR: {err:?}");
         }
+    }
+}
+
+
+mod ffi {
+    pub const EPOLL_CTL_ADD: i32 = 1;
+    pub const EPOLLIN: i32 = 0x1;
+    pub const EPOLLET: i32 = 1 << 31;
+
+    use super::Event;
+
+    #[link(name= "c")]
+    extern "C" {
+        pub fn epoll_create(size: i32) -> i32;
+        pub fn close(fd: i32) -> i32;
+        pub fn epoll_ctl(epfd: i32, op: i32, fd: i32, event: *mut Event) -> i32;
+        pub fn epoll_wait(epfd: i32, events: *mut Event, maxevents: i32, timeout: i32) -> i32;
     }
 }
